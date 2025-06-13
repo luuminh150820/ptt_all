@@ -97,7 +97,6 @@ class LLMAnalyzer:
                         "dependencies": []
                     }
         
-        # This should not be reached, but adding as fallback
         return {
             "column_name": column_name or "unknown",
             "priority": "low",
@@ -198,11 +197,12 @@ Based on this information, please:
 1. Analyze the patterns in the sample data as a Vietnamese Banker and an expert data analyst and Python programmer
 2. Determine if this column should be high priority for generation (e.g., primary key, required for relationships)
 3. Recommend the best strategy for generating synthetic data for this column (IMPORTANT: DO NOT USE faker library, use libraries that are available on Windows, Python 3) (Note: mimesis library does not support Vietnamese Locale yet, so for Vietnamese related data, you should use specialized libraries (like vn_fullname_generator) or custom patterns):
-   - For common data types, if you suggest using standard providers from the mimesis library (Version 18.0.0), you MUST set the 'generation_strategy' to "library_search" to confirm current usage and syntax. Populate 'provider_details' with the library ("mimesis") and specific provider (e.g., "datetime.month"). Crucially, also provide relevant 'search_queries' to find current Mimesis usage examples for this specific data type/provider.
+   - For common data types, like number, date, time, etc., you don't need to use mimesis, you can use custom patterns or specialized libraries. 
+   - If you suggest using standard providers from the mimesis library (Version 18.0.0), you MUST set the 'generation_strategy' to "library_search" to confirm current usage and syntax. Populate 'provider_details' with the library ("mimesis") and specific provider (e.g., "datetime.month"). Crucially, also provide relevant 'search_queries' to find current Mimesis usage examples for this specific data type/provider.
    - For more complex patterns where mimesis might not suffice, if you identify specialized libraries (e.g., vn_fullname_generator), set 'generation_strategy' to "library_search". Populate 'provider_details' with the library name. Provide specific 'search_queries' to find current usage examples of this specialized library for the column's task. (libraries should preferably be on PYPI).
    - If no suitable library exists or is identified, recommend a "custom_pattern" strategy. In this case, 'search_queries' should be an empty list unless there's a generic algorithmic pattern worth searching for.
    - Try not to sample exact values if found a clear pattern (you can sample part of it (e.g., "TUAN24" → can sample "TUAN")).
-4. Identify specific constraints or requirements for generating this data (e.g., data should follow formats of original (upper case, vietnamese with no special characters), data should follow statistical distribution of original (% null, etc.))
+4. Identify specific constraints or requirements for generating this data (e.g., data should follow exactly the formats of original (upper case, vietnamese with no special characters), data should follow statistical distribution of original (% null, etc.))
 5. The results would be used for an LLM prompt, so keep the results to the point
 
 Return your analysis in carefully in EXACT JSON format with the following structure:

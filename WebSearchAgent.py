@@ -254,15 +254,18 @@ class WebSearchAgent:
         
         # Documentation sites
         if library_name.lower() == 'mimesis':
-            queries.append(f"site:mimesis.name {base_query}")
+            queries.extend([
+                f"site:mimesis.name {base_query}",
+                f"site:github.com/lk-geimfari/mimesis {base_query}",
+                f"site:readthedocs.io mimesis {base_query}"
+            ])
+        else:
+            queries.extend([
+                f"site:readthedocs.io {library_name} {base_query}",
+                f"site:github.com {library_name} {base_query} example",
+            ])
         
-        queries.extend([
-            f"site:readthedocs.io {library_name} {base_query}",
-            f"site:stackoverflow.com python {library_name} {base_query}",
-            f"site:github.com {library_name} {base_query} example",
-            f"site:pypi.org {library_name}"
-        ])
-        
+        queries.append(f"site:pypi.org {library_name}")
         # Fallback general query
         queries.append(f"python {library_name} {base_query} example usage")
         
@@ -281,7 +284,8 @@ class WebSearchAgent:
                     'q': query,
                     'key': self.api_key,
                     'cx': self.cx,
-                    'num': 5
+                    'num': 5,
+                    'dateRestrict': 'm12'  # Restrict to last 12 months
                 }
                 
                 response = self.session.get(url, params=params, timeout=30)

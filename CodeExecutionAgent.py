@@ -30,9 +30,6 @@ class ErrorLogFilter:
     def __init__(self, similarity_threshold: float = 0.9):
         """
         Initialize the error filter.
-        
-        Args:
-            similarity_threshold: Threshold for considering two errors similar (0.0-1.0)
         """
         self.similarity_threshold = similarity_threshold
         self.error_groups = {}  # Will store normalized_pattern -> {count, examples, original_errors}
@@ -261,7 +258,7 @@ class CodeExecutionAgent:
 
             # Wait for process to complete, with a timeout using subprocess.communicate()
             try:
-                stdout, stderr = process.communicate(timeout=self.timeout_seconds) # Added timeout parameter
+                stdout, stderr = process.communicate(timeout=self.timeout_seconds) 
                 exit_code = process.returncode
 
             except subprocess.TimeoutExpired:
@@ -493,20 +490,21 @@ class CodeExecutionAgent:
         return results
 
     def run_execution_and_validation(self,
-                                   code_path: str,
-                                   requirements_path: str,
-                                   expected_output_path: str = None) -> Dict[str, Any]:
+                                code_path: str,
+                                requirements_path: str,
+                                expected_output_path: str = None) -> Dict[str, Any]:
         """
         Run the full execution and validation process.
+        Enhanced to better locate output files.
         """
         logger.info("Starting execution and validation process")
 
         # Initialize the results structure
         results = {
-            "execution": None,
-            "validation": None,
-            "overall_success": False,
-            "summary": ""
+        "execution": None,
+        "validation": None,
+        "overall_success": False,
+        "summary": ""
         }
 
         # Execute the code
@@ -516,43 +514,98 @@ class CodeExecutionAgent:
         # If execution failed (based on exit code OR stderr), no need to proceed to validation
         if not execution_result["success"]:
             results["summary"] = f"Code execution failed: {execution_result.get('error', 'Unknown error')}"
-            # The unique tracebacks are already stored in execution_result['traceback']
             logger.error(results["summary"])
             return results
 
         # Determine output file path if not provided
         output_path = expected_output_path
         if not output_path:
-            output_path = self._determine_output_path_from_code(code_path)
+            output_path = "pipeline_run_outputs/synthesized_output_data.csv"  # Default output path
 
-            # Default paths to try
-            if not output_path:
-                potential_default_path = "synthetic_fct_ent_casa.csv"
-                if os.path.exists(potential_default_path):
-                    output_path = potential_default_path
-                else: 
-                     output_dir = os.path.dirname(code_path) 
-                     potential_output_dir_path = os.path.join(output_dir, potential_default_path)
-                     if os.path.exists(potential_output_dir_path):
-                         output_path = potential_output_dir_path
+        # If still no output path found, try default/common locations
+        if not output_path:
+            code_dir = os.path.dirname(code_path)
+            current_dir = os.getcwd()
+        
+            # Common default filenames to check
+            default_filenames = [
+            "synthesized_output_data.csv",
+            "synthetic_fct_ent_casa.csv",
+            "generated_data.csv",
+            "output.csv",
+            "synthesized_output_data.json",
+            "output.json"
+            ]
+        
+            # Locations to check
+            search_dirs = [
+            current_dir,
+            code_dir,
+            os.path.join(current_dir, "pipeline_run_outputs"),
+            os.path.join(code_dir, "pipeline_run_outputs"),
+            os.path.join(current_dir, "outputs"),
+            os.path.join(code_dir, "outputs"),
+            ]
+        
+            logger.info(f"Searching for output file in directories: {search_dirs}")
+        
+            for search_dir in search_dirs:
+                if not os.path.exists(search_dir):
+                    continue
+                
+                # Check for default filenames
+                for filename in default_filenames:
+                    potential_path = os.path.join(search_dir, filename)
+                    if os.path.exists(potential_path):
+                        output_path = potential_path
+                        logger.info(f"Found output file at: {output_path}")
+                        break
+            
+                if output_path:
+                    break
+            
+                # Also check for any CSV/JSON files in the directory
+                try:
+                    for file in os.listdir(search_dir):
+                        if file.lower().endswith(('.csv', '.json')) and not file.startswith('.'):
+                            potential_path = os.path.join(search_dir, file)
+                            # Check if file was recently created (within last few minutes)
+                            if os.path.getmtime(potential_path) > (time.time() - 300):  # 5 minutes
+                                output_path = potential_path
+                                logger.info(f"Found recently created output file at: {output_path}")
+                                break
+                    if output_path:
+                        break
+                except OSError:
+                    continue
 
         if not output_path or not os.path.exists(output_path):
-            results["summary"] = "Code executed successfully but no output file was found"
+            # List files in likely directories for debugging
+            debug_info = []
+            for debug_dir in [os.getcwd(), os.path.dirname(code_path), "pipeline_run_outputs"]:
+                if os.path.exists(debug_dir):
+                    try:
+                        files = [f for f in os.listdir(debug_dir) if f.lower().endswith(('.csv', '.json'))]
+                        debug_info.append(f"{debug_dir}: {files}")
+                    except OSError:
+                        pass
+        
+            results["summary"] = f"Code executed successfully but no output file was found. Searched locations: {debug_info}"
             logger.error(results["summary"])
             results["validation"] = {
-                "success": False,
-                "validations": [],
-                "summary": "No output file found for validation"
+            "success": False,
+            "validations": [],
+            "summary": "No output file found for validation"
             }
             return results
         else:
-             logger.info(f"Found potential output file at: {output_path}")
-             results["validation"] = {"data_path_validated": output_path} 
+            logger.info(f"Found output file for validation at: {output_path}")
+            results["validation"] = {"data_path_validated": output_path}
 
         validation_result = self.validate_generated_data(output_path, requirements_path)
-        results["validation"].update(validation_result) 
+        results["validation"].update(validation_result)
 
-        results["overall_success"] = execution_result["success"] and results["validation"]["success"] 
+        results["overall_success"] = execution_result["success"] and results["validation"]["success"]
 
         if results["overall_success"]:
             results["summary"] = f"Execution and validation completed successfully. {results['validation']['summary']}"
@@ -561,54 +614,6 @@ class CodeExecutionAgent:
 
         logger.info(results["summary"])
         return results
-
-    def _determine_output_path_from_code(self, code_path: str) -> Optional[str]:
-        """
-        Try to determine the output file path by analyzing the code.
-        """
-        try:
-            with open(code_path, 'r', encoding='utf-8') as f:
-                code = f.read()
-
-            # Look for common patterns of file output in Python
-            for pattern in [
-                "to_csv(", "to_json(", "with open(", "write_csv(", "save(",
-                "dump(", "json.dump(", "saveAsJson", "writeOutput", "file_path =", "output_path ="
-            ]:
-                idx = code.find(pattern)
-                if idx >= 0:
-                    search_window = code[max(0, idx - 50) : idx + len(pattern) + 100]
-
-                    # Look for quoted strings which might be file paths
-                    for quote in ["'", '"']:
-                        start = search_window.find(quote)
-                        if start >= 0:
-                            end = search_window.find(quote, start + 1)
-                            if end > start:
-                                potential_path = search_window[start+1:end]
-                                if "." in potential_path and len(potential_path) > 3 and not potential_path.startswith("import"):
-                                    # Construct the full path relative to the code file's directory
-                                    code_dir = os.path.dirname(code_path)
-                                    full_potential_path = os.path.join(code_dir, potential_path)
-                                    # Return the full path if it seems valid
-                                    if os.path.exists(full_potential_path) or not os.path.isabs(potential_path):
-                                         return full_potential_path
-
-            # Fallback: Check for a common variable assignment like OUTPUT_CSV_PATH = '...'
-            import re
-            match = re.search(r"^[ \t]*(?:OUTPUT_CSV_PATH|OUTPUT_JSON_PATH|OUTPUT_FILE_PATH)[ \t]*=[ \t]*['\"](.*?)['\"]", code, re.MULTILINE)
-            if match:
-                 potential_path = match.group(1)
-                 code_dir = os.path.dirname(code_path)
-                 full_potential_path = os.path.join(code_dir, potential_path)
-                 if os.path.exists(full_potential_path) or not os.path.isabs(potential_path):
-                      return full_potential_path
-
-
-            return None
-        except Exception as e:
-            logger.error(f"Error determining output path from code: {str(e)}")
-            return None
 
     def save_results(self, results: dict[str, Any], output_path: str = "pipeline_run_outputs/code_execution_report.json") -> str:
         """
@@ -624,17 +629,17 @@ class CodeExecutionAgent:
                 return {k: sanitize_for_json(v) for k, v in obj.items()}
             elif isinstance(obj, list):
                 return [sanitize_for_json(elem) for elem in obj]
-            elif isinstance(obj, (bool, np.bool_)): # Handle both native bool and numpy.bool_
-                return bool(obj) # Convert numpy.bool_ to native bool
-            elif isinstance(obj, (int, np.integer)): # Handle native int and numpy integers
+            elif isinstance(obj, (bool, np.bool_)): 
+                return bool(obj) 
+            elif isinstance(obj, (int, np.integer)): 
                 return int(obj)
-            elif isinstance(obj, (float, np.floating)): # Handle native float and numpy floats
+            elif isinstance(obj, (float, np.floating)): 
                 return float(obj)
-            elif isinstance(obj, datetime.datetime): # Convert datetime objects to ISO format string
+            elif isinstance(obj, datetime.datetime): 
                 return obj.isoformat()
-            elif isinstance(obj, (set, tuple)): # Convert sets/tuples to lists
+            elif isinstance(obj, (set, tuple)): 
                 return [sanitize_for_json(elem) for elem in obj]
-            elif pd.isna(obj): # Handle NaN values from pandas if they are not converting to null
+            elif pd.isna(obj): 
                 return None
             return obj
 
@@ -646,7 +651,6 @@ class CodeExecutionAgent:
             return self.output_path
         except Exception as e:
             logger.error(f"Error saving results: {str(e)}")
-            # It's good practice to re-raise the exception if the saving is critical
             raise
 
     def _contains_actual_errors(self, stderr_output: str) -> bool:
@@ -682,20 +686,16 @@ class CodeExecutionAgent:
         stderr_lower = stderr_output.lower()
         has_errors = any(indicator.lower() in stderr_lower for indicator in error_indicators)
     
-        # If it has errors, return True
         if has_errors:
             return True
     
-        # If it's only INFO/DEBUG messages, return False
         lines = stderr_output.strip().split('\n')
         for line in lines:
             line = line.strip()
             if not line:
                 continue
-            # Check if this line matches info-only patterns
             is_info_only = any(re.search(pattern, line) for pattern in info_only_patterns)
             if not is_info_only:
-                # Found a line that's not clearly just informational
                 return True
     
         return False
